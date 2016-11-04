@@ -29,6 +29,7 @@ public class LibraryRestServer {
         @Override
         public void run() {
             if(!mBook.getReservationList().isEmpty()) {
+                getClient(mBook.getReservationList().get(0)).getNotificationBooks().remove(mBook);
                 mBook.getReservationList().remove(0);
 
                 updateReservationList(mBook);
@@ -84,7 +85,10 @@ public class LibraryRestServer {
     private void updateReservationList(Book book) {
         if(!book.getReservationList().isEmpty()) {
             book.setReservationExpiryDate(addDaysToDate(new Date(), 5));
-            book.notifyReservee();
+
+            String clientName = book.getReservationList().get(0);
+            Client client = getClient(clientName);
+            client.getNotificationBooks().add(book);
 
             Timer timer = new Timer();
             timer.schedule(new BookTimerTask(book), book.getReservationExpiryDate());
@@ -95,9 +99,16 @@ public class LibraryRestServer {
     @GET
     @Path("/books")
     @Produces(MediaType.APPLICATION_JSON)
-    public List<Book> getBooks(@QueryParam("name") String name) {
+    public List<Book> getBooks(@QueryParam("name") String name, @QueryParam("clientName") String clientName) {
         System.out.println(m_db.clientList.size());
-        if(name == null) return m_db.booksList;
+
+        if(name == null && clientName == null) return m_db.booksList;
+
+        if(clientName != null)
+        {
+            return getClient(clientName).getBookList();
+        }
+
 
         List<Book> resultList = new ArrayList<Book>();
         for(Book book : m_db.booksList) {
@@ -129,57 +140,58 @@ public class LibraryRestServer {
         System.out.println(params.client);
         System.out.println(params.bookName);
 
-        String client = params.client;
+        String clientName = params.client;
         String bookName = params.bookName;
 
-        Client c = getClient(client);
+        Client client = getClient(clientName);
         //Check the pre-requisites for the client
-        List<Book> clientBookList = c.getBookList();
+        List<Book> clientBookList = client.getBookList();
 
-        if(c.getPenaltyValidationDate() != null)
+        if(client.getPenaltyValidationDate() != null)
         {
-            if(c.getPenaltyValidationDate().getTime() > new Date().getTime()) {
-                return Response.status(Response.Status.BAD_REQUEST).entity("User has penalties").build();
+            if(client.getPenaltyValidationDate().getTime() > new Date().getTime()) {
+                return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"User has penalties\"} ").build();
             }
         }
 
         if(clientBookList.size() >= 3)
         {
-            return Response.status(Response.Status.BAD_REQUEST).entity("User has 3 or more books reserved").build();
+            return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"User has 3 or more books reserved\"} ").build();
         }
         for(Book b : clientBookList)
         {
             if(b.getReturnDate().getTime() < (new Date()).getTime())
             {
-                return Response.status(Response.Status.BAD_REQUEST).entity("User has books to return").build();
+                return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"User has books to return\"} ").build();
             }
         }
 
         Book book = getBook(bookName);
-        if(book == null) return Response.status(Response.Status.BAD_REQUEST).entity("Book not found").build();
+        if(book == null) return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book not found\"} ").build();
 
         //Check the pre-requisites for the book
         if(book.getOwner() != null)
         {
-            return Response.status(Response.Status.BAD_REQUEST).entity("Book is already taken").build();
+            return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book is already taken\"} ").build();
         }
 
         if(!book.getReservationList().isEmpty())
         {
-            if(!book.getReservationList().get(0).equals(c.getName()))
+            if(!book.getReservationList().get(0).equals(client.getName()))
             {
-                return Response.status(Response.Status.BAD_REQUEST).entity("Book is reserved").build();
+                return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book is reserved\"} ").build();
             }
+            client.getNotificationBooks().remove(book);
             book.getReservationList().remove(0);
             m_db.bookTimerMap.get(book.getName()).cancel();
         }
 
 
-        book.setOwner(client);
+        book.setOwner(clientName);
 
         book.setReturnDate((addDaysToDate(new Date(), 7)));
 
-        c.addBook(book);
+        client.addBook(book);
 
         System.out.println(m_db.clientList.size());
 
@@ -193,7 +205,7 @@ public class LibraryRestServer {
     public Response returnBook(final BookNameParams params)
     {
         Book book = getBook(params.bookName);
-        if(book.getOwner() == null) return Response.status(Response.Status.BAD_REQUEST).entity("Book has no owner").build();
+        if(book.getOwner() == null) return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book has no owner\"} ").build();
 
         Client client = getClient(book.getOwner());
 
@@ -218,14 +230,14 @@ public class LibraryRestServer {
         String client = params.client;
 
         Book book = getBook(bookName);
-        if(book == null) return Response.status(Response.Status.BAD_REQUEST).entity("Book not found").build();
+        if(book == null) return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book not found\"}").build();
 
         List<String> reservationList = book.getReservationList();
         for(String clientName : reservationList)
         {
             if(client.equals(clientName))
             {
-                return Response.status(Response.Status.BAD_REQUEST).entity("Client already in reservation list").build();
+                return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Client already in reservation list\"} ").build();
             }
         }
         reservationList.add(client);
@@ -240,18 +252,18 @@ public class LibraryRestServer {
     {
         String bookName = params.bookName;
         Book book = getBook(bookName);
-        if(book == null) return Response.status(Response.Status.BAD_REQUEST).entity("Book not found").build();
-        if(book.getOwner() == null) return Response.status(Response.Status.BAD_REQUEST).entity("Book has no owner").build();
+        if(book == null) return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book not found\"} ").build();
+        if(book.getOwner() == null) return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book has no owner\"} ").build();
 
         Client client = getClient(book.getOwner());
         if(client.getPenaltyValidationDate() != null
                 && client.getPenaltyValidationDate().getTime() > new Date().getTime()) {
-            return Response.status(Response.Status.BAD_REQUEST).entity("User has penalties").build();
+            return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"User has penalties\"} ").build();
         }
 
         for(Book b : getClient(book.getOwner()).getBookList()) {
             if(book.getReturnDate().getTime() < (new Date()).getTime()) {
-                return Response.status(Response.Status.BAD_REQUEST).entity("User has books to return").build();
+                return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"User has books to return\"} ").build();
             }
         }
 
@@ -260,7 +272,16 @@ public class LibraryRestServer {
             book.setReturnDate(addDaysToDate(new Date(), 7));
             return Response.ok().build();
         } else {
-            return Response.status(Response.Status.BAD_REQUEST).entity("Book is already reserved").build();
+            return Response.status(Response.Status.BAD_REQUEST).entity("{\"m\": \"Book is already reserved\"} ").build();
         }
+    }
+
+    @GET
+    @Path("/clients/notifications")
+    @Produces(MediaType.APPLICATION_JSON)
+    public List<Book> getNotifications(@QueryParam("clientName") String clientName) {
+        List<Book> notifications = getClient(clientName).getNotificationBooks();
+        getClient(clientName).setNotificationBooks(new ArrayList<Book>());
+        return notifications;
     }
 }

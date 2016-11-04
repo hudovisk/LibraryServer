@@ -10,6 +10,7 @@ import java.util.List;
  */
 public class Client implements Serializable{
     private String name;
+    private List<Book> mNotificationBooks = new ArrayList<Book>();
     private List<Book> mBookList = new ArrayList<Book>();
     private Date penaltyValidationDate;
 
@@ -50,5 +51,13 @@ public class Client implements Serializable{
 
     public void setPenaltyValidationDate(Date penaltyValidationDate) {
         this.penaltyValidationDate = penaltyValidationDate;
+    }
+
+    public List<Book> getNotificationBooks() {
+        return mNotificationBooks;
+    }
+
+    public void setNotificationBooks(List<Book> mNotificationBooks) {
+        this.mNotificationBooks = mNotificationBooks;
     }
 }
